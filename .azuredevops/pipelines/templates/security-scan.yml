@@ -1,0 +1,9 @@
+jobs:
+  - job: TrivyScan
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+      - script: |
+          chmod +x scripts/trivy-scan.sh
+          ./scripts/trivy-scan.sh $(containerRegistry)/$(imageName):$(Build.BuildId)
+        displayName: "Run Trivy vulnerability scan"

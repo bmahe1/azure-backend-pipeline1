@@ -1,0 +1,13 @@
+{
+  "name": "knowledgecity/backend",
+  "description": "KnowledgeCity backend API",
+  "require": {
+    "php": ">=8.0",
+    "ext-pdo": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "KnowledgeCity\\\\": "src/"
+    }
+  }
+}

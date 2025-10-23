@@ -1,0 +1,14 @@
+jobs:
+  - deployment: DeployToAKS
+    environment: 'aks/knowledgecity'
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - checkout: self
+            - script: |
+                chmod +x deployment/scripts/deploy.sh
+                ./deployment/scripts/deploy.sh $(containerRegistry)/$(imageName):$(Build.BuildId) $(aksNamespace)
+              displayName: "Deploy to AKS (kustomize)"

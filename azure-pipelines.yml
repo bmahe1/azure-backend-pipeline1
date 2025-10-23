@@ -13,16 +13,16 @@ stages:
   - stage: Build
     displayName: "Build and Push Docker Image"
     jobs:
-      - template: templates/build-stage.yml
+      - template: pipelines/templates/build-stage.yml
 
   - stage: SecurityScan
     displayName: "Run Trivy Scan"
     dependsOn: Build
     jobs:
-      - template: templates/security-scan.yml
+      - template: pipelines/templates/security-scan.yml
 
   - stage: Deploy
     displayName: "Deploy to AKS"
     dependsOn: SecurityScan
     jobs:
-      - template: templates/deploy-stage.yml
+      - template: pipelines/templates/deploy-stage.yml

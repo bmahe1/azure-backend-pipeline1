@@ -1,6 +1,6 @@
 jobs:
   - deployment: DeployToAKS
-    environment: 'aks/knowledgecity'
+    environment: 'aks'
     pool:
       vmImage: 'ubuntu-latest'
     strategy:

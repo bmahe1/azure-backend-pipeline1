@@ -2,84 +2,63 @@ trigger:
   branches:
     include:
       - main
+
 variables:
   imageName: knowledgecity-backend
   containerRegistry: backendcntainer.azurecr.io
   aksCluster: backend-cluster
-  aksNamespace: kube-system
-  containerRegistryServiceConnection: container-pipeline # ACR service connection name
-  aksServiceConnection: pipeline-cluster # AKS subscription service connection name
+  aksNamespace: knowledgecity
 
 stages:
+  - stage: Build
+    displayName: "Build and Push Docker Image"
+    jobs:
+      - job: DockerBuildPush
+        displayName: "Build and Push Image to ACR"
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: Docker@2
+            displayName: Build Docker image
+            inputs:
+              command: build
+              Dockerfile: backend/Dockerfile
+              tags: |
+                $(containerRegistry)/$(imageName):$(Build.BuildId)
 
-# ✅ Stage 1: Build & Push Docker Image to ACR
-- stage: Build
-  displayName: "Build and Push Docker Image"
-  jobs:
-    - job: Build
-      displayName: Build Backend Image
-      pool:
-        vmImage: ubuntu-latest
-      steps:
-        - checkout: self
+          - task: Docker@2
+            displayName: Push Docker image to ACR
+            inputs:
+              command: push
+              azureContainerRegistry: container-pipeline
+              tags: |
+                $(containerRegistry)/$(imageName):$(Build.BuildId)
 
-        - task: Docker@2
-          displayName: Login to ACR
-          inputs:
-            command: login
-            containerRegistry: $(containerRegistryServiceConnection)
+  - stage: SecurityScan
+    displayName: "Run Trivy Scan"
+    dependsOn: Build
+    jobs:
+      - template: .azuredevops/pipelines/templates/security-scan.yml
 
-        - task: Docker@2
-          displayName: Build and Push Docker Image
-          inputs:
-            command: buildAndPush
-            repository: $(containerRegistry)/$(imageName)
-            dockerfile: backend/Dockerfile
-            buildContext: backend
-            tags: |
-              $(Build.BuildId)
-
-# ✅ Stage 2: Trivy Scan
-- stage: SecurityScan
-  displayName: "Trivy Container Scan"
-  dependsOn: Build
-  jobs:
-    - job: Scan
-      pool:
-        vmImage: ubuntu-latest
-      steps:
-        - script: |
-            docker pull $(containerRegistry)/$(imageName):$(Build.BuildId)
-            trivy image --exit-code 0 --severity HIGH,CRITICAL $(containerRegistry)/$(imageName):$(Build.BuildId)
-          displayName: Run Trivy scan
-
-# ✅ Stage 3: Deploy to AKS using Kustomize
-- stage: Deploy
-  displayName: "Deploy to AKS"
-  dependsOn: SecurityScan
-  jobs:
-    - job: Deploy
-      displayName: Deploy Backend to AKS
-      pool:
-        vmImage: ubuntu-latest
-      steps:
-        - checkout: self
-
-        - task: AzureCLI@2
-          displayName: AKS Login
-          inputs:
-            azureSubscription: $(aksServiceConnection)
-            scriptType: bash
-            scriptLocation: inlineScript
-            inlineScript: |
-              echo "Login to AKS Cluster"
-              az aks get-credentials --resource-group backend-cluster-rg --name $(aksCluster) --overwrite-existing
-
-        - script: |
-            cd deployment/overlays/prod
-            # Update image dynamically
-            kustomize edit set image $(containerRegistry)/$(imageName):$(Build.BuildId)
-            # Deploy to AKS
-            kustomize build . | kubectl apply -f -
-          displayName: Deploy with kustomize
-
+  - stage: Deploy
+    displayName: "Deploy to AKS"
+    dependsOn: SecurityScan
+    jobs:
+      - job: DeployToAKS
+        displayName: "Deploy Kubernetes"
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: Kubernetes@1
+            displayName: Apply K8s manifests
+            inputs:
+              connectionType: Azure Resource Manager
+              azureSubscriptionEndpoint: azurerm-aks-connection
+              azureResourceGroup: 'backend-rg'
+              kubernetesCluster: 'backend-cluster'
+              namespace: 'knowledgecity'
+              command: apply
+              useConfigurationFile: true
+              configuration: |
+                deployment/base/deployment.yaml
+                deployment/base/service.yaml

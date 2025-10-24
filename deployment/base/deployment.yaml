@@ -15,6 +15,6 @@ spec:
     spec:
       containers:
       - name: knowledgecity-backend
-        image: backendcontainer.azurecr.io/knowledgecity-backend:{{BUILD_BUILDID}}
+        image: backendcntainer.azurecr.io/knowledgecity-backend:latest
         ports:
         - containerPort: 80

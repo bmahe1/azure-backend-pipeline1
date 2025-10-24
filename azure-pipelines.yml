@@ -46,9 +46,15 @@ steps:
   inputs:
     targetType: 'inline'
     script: |
+      echo "🛡 Installing Trivy..."
+      sudo apt-get update -y
+      sudo apt-get install wget apt-transport-https gnupg lsb-release -y
+      wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+      echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+      sudo apt-get update -y
+      sudo apt-get install trivy -y
+
       echo "🛡 Running Trivy Scan..."
-      wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.50.2_Linux-64bit.deb
-      sudo dpkg -i trivy_0.50.2_Linux-64bit.deb
       trivy image --exit-code 1 --severity HIGH,CRITICAL $ACR_NAME.azurecr.io/$IMAGE_NAME:$TAG
 
 # Push Docker Image to ACR

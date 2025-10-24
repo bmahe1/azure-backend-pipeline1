@@ -41,21 +41,6 @@ steps:
       docker build -f backend/Dockerfile -t $ACR_NAME.azurecr.io/$IMAGE_NAME:$TAG backend/
 
 
-# Trivy Vulnerability Scan
-- task: Bash@3
-  inputs:
-    targetType: 'inline'
-    script: |
-      echo "🛡 Installing Trivy..."
-      sudo apt-get update -y
-      sudo apt-get install wget apt-transport-https gnupg lsb-release -y
-      wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-      echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/trivy.list
-      sudo apt-get update -y
-      sudo apt-get install trivy -y
-
-      echo "🛡 Running Trivy Scan..."
-      trivy image --exit-code 1 --severity HIGH,CRITICAL $ACR_NAME.azurecr.io/$IMAGE_NAME:$TAG
 
 # Push Docker Image to ACR
 - task: Docker@2

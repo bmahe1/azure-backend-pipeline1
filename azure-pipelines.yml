@@ -7,7 +7,8 @@ variables:
   imageName: knowledgecity-backend
   aksCluster: backend-cluster
   aksNamespace: knowledgecity
-  resourceGroup: backend-rg
+  resourceGroup: aks-rg  # ✅ Corrected RG for AKS
+  acrName: backendcntainer.azurecr.io
 
 stages:
 
@@ -18,25 +19,26 @@ stages:
     displayName: "Build and Push Docker Image"
     jobs:
       - job: DockerBuildPush
-        displayName: "Build and Push Image to ACR"
         pool:
           vmImage: 'ubuntu-latest'
         steps:
           - task: Docker@2
-            displayName: Build & Push Image
+            displayName: Build & Push Docker Image
             inputs:
               command: buildAndPush
               repository: $(imageName)
               containerRegistry: container-pipeline
-              Dockerfile: backend/Dockerfile
+              dockerfile: backend/Dockerfile
+              buildContext: backend
               tags: |
                 $(Build.BuildId)
+                latest
 
   # ------------------------
   # Trivy Image Scan
   # ------------------------
   - stage: SecurityScan
-    displayName: "Run Trivy Scan"
+    displayName: "Security Scan (Trivy)"
     dependsOn: Build
     jobs:
       - template: .azuredevops/pipelines/templates/security-scan.yml
@@ -55,8 +57,9 @@ stages:
         pool:
           vmImage: 'ubuntu-latest'
         steps:
+
           - task: Kubernetes@1
-            displayName: "Deploy manifests to AKS"
+            displayName: Update AKS Deployment
             inputs:
               connectionType: Azure Resource Manager
               azureSubscriptionEndpoint: azurerm-aks-connection

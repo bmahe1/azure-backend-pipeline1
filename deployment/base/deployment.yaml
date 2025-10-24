@@ -14,7 +14,7 @@ spec:
         app: backend-app
     spec:
       containers:
-        - name: backend-app
+        - name: backendcntainer
           image: backendcontainer.azurecr.io/backendcontainer:latest
           ports:
             - containerPort: 80

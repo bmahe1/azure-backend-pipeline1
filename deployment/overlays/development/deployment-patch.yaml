@@ -7,5 +7,5 @@ spec:
   template:
     spec:
       containers:
-        - name: backend
+        - name: backendcntainer
           image: REPLACE_IMAGE_DEV

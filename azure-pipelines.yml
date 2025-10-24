@@ -5,65 +5,66 @@ trigger:
 
 variables:
   imageName: knowledgecity-backend
-  containerRegistry: backendcntainer.azurecr.io
   aksCluster: backend-cluster
   aksNamespace: knowledgecity
+  resourceGroup: backend-rg
 
 stages:
 
-# -----------------------
-# ✅ BUILD + PUSH
-# -----------------------
+  # ------------------------
+  # Build & Push to ACR
+  # ------------------------
   - stage: Build
-    displayName: "Build & Push Docker Image"
+    displayName: "Build and Push Docker Image"
     jobs:
-      - job: BuildAndPush
+      - job: DockerBuildPush
+        displayName: "Build and Push Image to ACR"
         pool:
           vmImage: 'ubuntu-latest'
         steps:
+          - task: Docker@2
+            displayName: Build & Push Image
+            inputs:
+              command: buildAndPush
+              repository: $(imageName)
+              containerRegistry: container-pipeline
+              Dockerfile: backend/Dockerfile
+              tags: |
+                $(Build.BuildId)
 
-        - task: Docker@2
-          displayName: "Build and Push image to ACR"
-          inputs:
-            command: buildAndPush
-            containerRegistry: container-pipeline   # ✅ Your ACR Service Connection
-            repository: $(imageName)
-            Dockerfile: backend/Dockerfile
-            tags: |
-              $(Build.BuildId)
-              latest
-
-# -----------------------
-# ✅ TRIVY SCAN
-# -----------------------
+  # ------------------------
+  # Trivy Image Scan
+  # ------------------------
   - stage: SecurityScan
+    displayName: "Run Trivy Scan"
     dependsOn: Build
-    displayName: "Run Trivy Security Scan"
     jobs:
       - template: .azuredevops/pipelines/templates/security-scan.yml
+        parameters:
+          imageName: $(imageName)
+          imageTag: $(Build.BuildId)
 
-# -----------------------
-# ✅ DEPLOY TO AKS
-# -----------------------
+  # ------------------------
+  # Deploy to AKS
+  # ------------------------
   - stage: Deploy
-    dependsOn: SecurityScan
     displayName: "Deploy to AKS"
+    dependsOn: SecurityScan
     jobs:
       - job: DeployToAKS
         pool:
           vmImage: 'ubuntu-latest'
         steps:
-
-        - task: Kubernetes@1
-          displayName: "Deploy Application"
-          inputs:
-            connectionType: Azure Resource Manager
-            azureSubscriptionEndpoint: azurerm-aks-connection   # ✅ AzureRM type
-            azureResourceGroup: backend-rg
-            kubernetesCluster: backend-cluster
-            namespace: $(aksNamespace)
-            command: apply
-            useConfigurationFile: true
-            configuration: |
-              deployment/base/deployment.yaml
-              deployment/base/service.yaml
+          - task: Kubernetes@1
+            displayName: "Deploy manifests to AKS"
+            inputs:
+              connectionType: Azure Resource Manager
+              azureSubscriptionEndpoint: azurerm-aks-connection
+              azureResourceGroup: $(resourceGroup)
+              kubernetesCluster: $(aksCluster)
+              namespace: $(aksNamespace)
+              command: apply
+              useConfigurationFile: true
+              configuration: |
+                deployment/base/deployment.yaml
+                deployment/base/service.yaml

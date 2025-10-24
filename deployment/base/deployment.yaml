@@ -1,21 +1,20 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: backend-deployment
-  namespace: default
+  name: knowledgecity-backend
+  namespace: knowledgecity
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app: backend-app
+      app: knowledgecity-backend
   template:
     metadata:
       labels:
-        app: backend-app
+        app: knowledgecity-backend
     spec:
       containers:
-        - name: backendcntainer
-          image: backendcontainer.azurecr.io/backendcontainer:latest
-          ports:
-            - containerPort: 80
-          imagePullPolicy: Always
+      - name: knowledgecity-backend
+        image: backendcontainer.azurecr.io/knowledgecity-backend:{{BUILD_BUILDID}}
+        ports:
+        - containerPort: 80

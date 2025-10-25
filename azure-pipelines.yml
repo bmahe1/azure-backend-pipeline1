@@ -15,33 +15,37 @@ variables:
 
 steps:
 
+# Login to Azure
 - task: AzureCLI@2
+  displayName: Login to Azure
   inputs:
     azureSubscription: 'docker-connection1'
-    scriptType: 'bash'
-    scriptLocation: 'inlineScript'
+    scriptType: bash
+    scriptLocation: inlineScript
     inlineScript: |
       echo "✅ Logged into Azure"
       az account show
 
-# ✅ ACR Login
+# Login to ACR using Service Connection
 - task: Docker@2
   displayName: Login to ACR
   inputs:
     command: login
     containerRegistry: 'repo'
 
-# ✅ Build Docker image
+# Build Docker Image
 - task: Bash@3
+  displayName: Build Docker Image
   inputs:
     targetType: 'inline'
     script: |
-      echo "🐳 Building Docker Image..."
-      docker build -f backend/Dockerfile -t $(ACR_NAME).azurecr.io/$(IMAGE_NAME):$(TAG) backend/
+      echo "🐳 Building Docker image..."
+      docker build -f backend/Dockerfile \
+        -t $(ACR_NAME).azurecr.io/$(IMAGE_NAME):$(TAG) backend/
 
-# ✅ Push Docker Image to ACR (correct prefix)
+# Push Docker Image to ACR
 - task: Docker@2
-  displayName: Push image to ACR
+  displayName: Push Docker Image
   inputs:
     command: push
     containerRegistry: 'repo'
@@ -51,11 +55,12 @@ steps:
 
 # Connect to AKS
 - task: AzureCLI@2
+  displayName: Connect to AKS
   inputs:
     azureSubscription: 'docker-connection1'
     scriptType: 'bash'
     inlineScript: |
-      echo "🔑 Fetching AKS Credentials"
+      echo "🔑 Fetching AKS Credentials..."
       az aks get-credentials -g $RESOURCE_GROUP -n $AKS_NAME --overwrite-existing
 
 # Deploy to AKS

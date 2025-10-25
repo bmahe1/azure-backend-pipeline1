@@ -34,7 +34,7 @@ steps:
     containerRegistry: 'repo'
 
 # Build Docker Image
-- task: Docker@2
+- task: Bash@3
   displayName: Build Docker Image
   inputs:
     targetType: 'inline'
@@ -49,7 +49,7 @@ steps:
   inputs:
     command: push
     containerRegistry: 'repo'
-    repository: $(ACR_NAME).azurecr.io/$(IMAGE_NAME)
+    repository: $(IMAGE_NAME)
     tags: |
       $(TAG)
 

@@ -1,87 +1,119 @@
 trigger:
-  branches:
-    include:
-      - main
+- main
 
+# Variables
 variables:
-  ACR_NAME: backendazure
-  ACR_LOGIN: backendazure.azurecr.io
-  IMAGE_NAME: backend
-  TAG: $(Build.BuildId)
-  RESOURCE_GROUP: aks-rg
-  AKS_NAME: Backend-cluster
+  # Docker + ACR
+  dockerRegistryServiceConnection: 'repo'
+  containerRegistry: 'backendazure.azurecr.io'
+  imageRepository: 'backendazure'
+  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  tag: '$(Build.BuildId)'
 
-pool:
-  vmImage: ubuntu-latest
+  # AKS Deploy Config
+  aksSubscriptionServiceConnection: 'docker-connection1'
+  aksResourceGroup: 'Backend-RG'
+  aksCluster: 'Backend-cluster'
+  namespace: 'production'
 
-steps:
+  vmImageName: 'ubuntu-latest'
 
-# Login Azure via ARM connection for AKS & ACR permissions
-- task: AzureCLI@2
-  displayName: Login to Azure
-  inputs:
-    azureSubscription: docker-connection1
-    scriptType: bash
-    inlineScript: |
-      echo "✅ Azure Login Successful"
-      az acr login --name $ACR_NAME
+stages:
 
-# Build Docker image locally
-- task: Bash@3
-  displayName: Build Docker Image
-  inputs:
-    targetType: inline
-    script: |
-      echo "🐳 Building Docker image..."
-      docker build -t $ACR_LOGIN/$IMAGE_NAME:$TAG backend/
+####################################
+# Stage 1: Build + Trivy + Push ACR
+####################################
+- stage: Build
+  displayName: Build, Scan and Push Container
+  jobs:
+  - job: BuildAndScan
+    pool:
+      vmImage: $(vmImageName)
 
-# Push image to ACR using Docker registry connection
-- task: Docker@2
-  displayName: Push Image to ACR
-  inputs:
-    command: push
-    containerRegistry: repo
-    repository: $(IMAGE_NAME)
-    tags: |
-      $(TAG)
+    steps:
+    - task: Maven@4
+      displayName: "Build Java App"
+      inputs:
+        mavenPomFile: 'pom.xml'
+        publishJUnitResults: true
+        testResultsFiles: '**/surefire-reports/TEST-*.xml'
 
-# Get AKS credentials
-- task: AzureCLI@2
-  displayName: Connect to AKS
-  inputs:
-    azureSubscription: docker-connection1
-    scriptType: bash
-    inlineScript: |
-      echo "🔑 Fetching AKS Credentials"
-      az aks get-credentials -g $RESOURCE_GROUP -n $AKS_NAME --overwrite-existing
+    - task: Docker@2
+      displayName: "🐳 Build Docker Image"
+      inputs:
+        command: build
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
 
-# Deploy app to AKS
-- task: Kubernetes@1
+    - task: Bash@3
+      displayName: "🔍 Install Trivy"
+      inputs:
+        targetType: inline
+        script: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
+
+    - task: Bash@3
+      displayName: "🛡 Run Trivy Scan"
+      inputs:
+        targetType: inline
+        script: |
+          ./bin/trivy image --severity HIGH,CRITICAL --ignore-unfixed $(containerRegistry)/$(imageRepository):$(tag)
+
+    - task: Docker@2
+      displayName: "🚀 Push to ACR"
+      inputs:
+        command: push
+        repository: $(imageRepository)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+
+    - upload: deployment
+      artifact: src
+
+####################################
+# Stage 2: Deploy to AKS via Script
+####################################
+- stage: Deploy
   displayName: Deploy to AKS
-  inputs:
-    connectionType: Azure Resource Manager
-    azureSubscriptionEndpoint: docker-connection1
-    azureResourceGroup: $(RESOURCE_GROUP)
-    kubernetesCluster: $(AKS_NAME)
-    command: apply
-    useConfigurationFile: true
-    configuration: |
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: backend
-      spec:
-        replicas: 1
-        selector:
-          matchLabels:
-            app: backend
-        template:
-          metadata:
-            labels:
-              app: backend
-          spec:
-            containers:
-            - name: backend
-              image: $(ACR_LOGIN)/$(IMAGE_NAME):$(TAG)
-              ports:
-              - containerPort: 80
+  dependsOn: Build
+  jobs:
+  - deployment: DeployToAKS
+    pool:
+      vmImage: $(vmImageName)
+    environment: 'Backend-cluster'
+
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: src
+
+          - task: AzureCLI@2
+            displayName: "⛵ Deploy to AKS"
+            inputs:
+              azureSubscription: $(aksSubscriptionServiceConnection)
+              scriptLocation: inlineScript
+              inlineScript: |
+                echo "📌 Getting AKS Credentials"
+                az aks get-credentials \
+                  --resource-group $(aksResourceGroup) \
+                  --name $(aksCluster) \
+                  --overwrite-existing
+                
+                echo "📌 Ensure namespace exists"
+                kubectl create namespace $(namespace) --dry-run=client -o yaml | kubectl apply -f -
+
+                chmod +x $(Pipeline.Workspace)/src/deployment/scripts/deploy.sh
+
+                IMAGE="$(containerRegistry)/$(imageRepository):$(tag)"
+                NS="$(namespace)"
+
+                echo "🚚 Deploying image: $IMAGE"
+                $(Pipeline.Workspace)/src/deployment/scripts/deploy.sh "$IMAGE" "$NS"
+
+                echo "✅ Deployment triggered successfully"

@@ -15,7 +15,6 @@ variables:
 
 steps:
 
-# Login to Azure for AKS + ACR access
 - task: AzureCLI@2
   inputs:
     azureSubscription: 'docker-connection1'
@@ -25,30 +24,28 @@ steps:
       echo "✅ Logged into Azure"
       az account show
 
-# ACR Login using Docker Service Connection
+# ✅ ACR Login
 - task: Docker@2
   displayName: Login to ACR
   inputs:
     command: login
     containerRegistry: 'repo'
 
-# Build Docker image
+# ✅ Build Docker image
 - task: Bash@3
   inputs:
     targetType: 'inline'
     script: |
       echo "🐳 Building Docker Image..."
-      docker build -f backend/Dockerfile -t $ACR_NAME.azurecr.io/$IMAGE_NAME:$TAG backend/
+      docker build -f backend/Dockerfile -t $(ACR_NAME).azurecr.io/$(IMAGE_NAME):$(TAG) backend/
 
-
-
-# Push Docker Image to ACR
+# ✅ Push Docker Image to ACR (correct prefix)
 - task: Docker@2
   displayName: Push image to ACR
   inputs:
     command: push
     containerRegistry: 'repo'
-    repository: $(IMAGE_NAME)
+    repository: $(ACR_NAME).azurecr.io/$(IMAGE_NAME)
     tags: |
       $(TAG)
 
@@ -61,7 +58,7 @@ steps:
       echo "🔑 Fetching AKS Credentials"
       az aks get-credentials -g $RESOURCE_GROUP -n $AKS_NAME --overwrite-existing
 
-# Deploy to AKS using kubectl
+# Deploy to AKS
 - task: Kubernetes@1
   displayName: Deploy to AKS
   inputs:

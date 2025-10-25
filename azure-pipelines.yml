@@ -34,7 +34,7 @@ steps:
     containerRegistry: 'repo'
 
 # Build Docker Image
-- task: Bash@3
+- task: Docker@2
   displayName: Build Docker Image
   inputs:
     targetType: 'inline'

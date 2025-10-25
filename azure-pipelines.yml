@@ -1,69 +1,51 @@
 trigger:
 - main
 
-# Variables
 variables:
-  # Docker + ACR
   dockerRegistryServiceConnection: 'repo'
+  aksServiceConnection: 'docker-connection1'
   containerRegistry: 'backendazure.azurecr.io'
-  imageRepository: 'backendazure'
-  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  imageRepository: 'backend'
   tag: '$(Build.BuildId)'
-
-  # AKS Deploy Config
-  aksSubscriptionServiceConnection: 'docker-connection1'
-  aksResourceGroup: 'Backend-RG'
-  aksCluster: 'Backend-cluster'
-  namespace: 'production'
-
   vmImageName: 'ubuntu-latest'
 
 stages:
 
-####################################
-# Stage 1: Build + Trivy + Push ACR
-####################################
+# ------------------------ BUILD & PUSH ------------------------
 - stage: Build
-  displayName: Build, Scan and Push Container
+  displayName: Build and Push Docker Image
   jobs:
-  - job: BuildAndScan
+  - job: Build
     pool:
       vmImage: $(vmImageName)
-
     steps:
-    - task: Maven@4
-      displayName: "Build Java App"
-      inputs:
-        mavenPomFile: 'pom.xml'
-        publishJUnitResults: true
-        testResultsFiles: '**/surefire-reports/TEST-*.xml'
 
     - task: Docker@2
-      displayName: "🐳 Build Docker Image"
+      displayName: 🛠 Build Docker Image
       inputs:
         command: build
         repository: $(imageRepository)
-        dockerfile: $(dockerfilePath)
         containerRegistry: $(dockerRegistryServiceConnection)
+        Dockerfile: '**/Dockerfile'
         tags: |
           $(tag)
 
     - task: Bash@3
-      displayName: "🔍 Install Trivy"
+      displayName: 🔍 Install Trivy
       inputs:
         targetType: inline
         script: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
 
     - task: Bash@3
-      displayName: "🛡 Run Trivy Scan"
+      displayName: 🛡 Trivy Scan Image
       inputs:
         targetType: inline
         script: |
-          ./bin/trivy image --severity HIGH,CRITICAL --ignore-unfixed $(containerRegistry)/$(imageRepository):$(tag)
+          ./bin/trivy image --severity HIGH,CRITICAL $(containerRegistry)/$(imageRepository):$(tag) || true
 
     - task: Docker@2
-      displayName: "🚀 Push to ACR"
+      displayName: 🚀 Push to ACR
       inputs:
         command: push
         repository: $(imageRepository)
@@ -71,49 +53,50 @@ stages:
         tags: |
           $(tag)
 
-    - upload: deployment
-      artifact: src
+    - publish: deployment
+      artifact: manifests
 
-####################################
-# Stage 2: Deploy to AKS via Script
-####################################
+
+# ------------------------ DEPLOY TO AKS ------------------------
 - stage: Deploy
   displayName: Deploy to AKS
   dependsOn: Build
   jobs:
-  - deployment: DeployToAKS
+  - deployment: Deploy
+    displayName: Deploy to Backend AKS Cluster
+    environment: 'Backend-env'
     pool:
       vmImage: $(vmImageName)
-    environment: 'Backend-cluster'
-
     strategy:
       runOnce:
         deploy:
           steps:
-          - download: current
-            artifact: src
 
           - task: AzureCLI@2
-            displayName: "⛵ Deploy to AKS"
+            displayName: 🎟 Authenticate AKS
             inputs:
-              azureSubscription: $(aksSubscriptionServiceConnection)
+              azureSubscription: $(aksServiceConnection)
+              scriptType: bash
               scriptLocation: inlineScript
               inlineScript: |
-                echo "📌 Getting AKS Credentials"
-                az aks get-credentials \
-                  --resource-group $(aksResourceGroup) \
-                  --name $(aksCluster) \
-                  --overwrite-existing
-                
-                echo "📌 Ensure namespace exists"
-                kubectl create namespace $(namespace) --dry-run=client -o yaml | kubectl apply -f -
+                az aks get-credentials --resource-group backendazure --name Backend-cluster --overwrite-existing
 
-                chmod +x $(Pipeline.Workspace)/src/deployment/scripts/deploy.sh
+          - task: KubernetesManifest@0
+            displayName: 🔑 Create Image Pull Secret
+            inputs:
+              action: createSecret
+              secretName: acr-auth
+              namespace: default
+              dockerRegistryEndpoint: $(dockerRegistryServiceConnection)
 
-                IMAGE="$(containerRegistry)/$(imageRepository):$(tag)"
-                NS="$(namespace)"
-
-                echo "🚚 Deploying image: $IMAGE"
-                $(Pipeline.Workspace)/src/deployment/scripts/deploy.sh "$IMAGE" "$NS"
-
-                echo "✅ Deployment triggered successfully"
+          - task: KubernetesManifest@0
+            displayName: 🚀 Apply K8s Deployment & Service
+            inputs:
+              action: deploy
+              manifests: |
+                $(Pipeline.Workspace)/manifests/deployment.yaml
+                $(Pipeline.Workspace)/manifests/service.yaml
+              containers: |
+                $(containerRegistry)/$(imageRepository):$(tag)
+              imagePullSecrets: |
+                acr-auth

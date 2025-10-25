@@ -30,7 +30,7 @@ steps:
   displayName: Login to ACR
   inputs:
     command: login
-    containerRegistry: 'docker-connection'
+    containerRegistry: 'repo'
 
 # Build Docker image
 - task: Bash@3
@@ -47,7 +47,7 @@ steps:
   displayName: Push image to ACR
   inputs:
     command: push
-    containerRegistry: 'docker-connection'
+    containerRegistry: 'repo '
     repository: $(IMAGE_NAME)
     tags: |
       $(TAG)

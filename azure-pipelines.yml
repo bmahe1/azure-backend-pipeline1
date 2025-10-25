@@ -47,7 +47,7 @@ steps:
   displayName: Push image to ACR
   inputs:
     command: push
-    containerRegistry: 'repo '
+    containerRegistry: 'repo'
     repository: $(IMAGE_NAME)
     tags: |
       $(TAG)

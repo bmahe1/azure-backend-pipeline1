@@ -16,8 +16,8 @@ steps:
 - task: Docker@2
   displayName: 🛠 Build Docker Image
   inputs:
-    containerRegistry: 'repo'   # ✅ FIX: Use correct service connection
-    repository: $(imageName)                  # ✅ FIX: repo only, not full URL
+    containerRegistry: repo
+    repository: $(acrName).azurecr.io/$(imageName)   # ✅ Full ACR path
     command: build
     Dockerfile: '**/Dockerfile'
     tags: |
@@ -26,11 +26,12 @@ steps:
 - task: Docker@2
   displayName: 🚀 Push Docker Image
   inputs:
-    containerRegistry: 'repo'   # ✅ FIX: Same service connection
-    repository: $(imageName)
+    containerRegistry: repo
+    repository: $(acrName).azurecr.io/$(imageName)   # ✅ Full ACR path
     command: push
     tags: |
       $(tag)
+
 
 - task: AzureCLI@2
   displayName: ⚙️ Deploy to AKS

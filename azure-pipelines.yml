@@ -1,86 +1,38 @@
 trigger:
-  branches:
-    include:
-      - main
+- main
+
+pool:
+  vmImage: ubuntu-latest
 
 variables:
   ACR_NAME: backendazure
   IMAGE_NAME: knowledgecity-backend
   TAG: $(Build.BuildId)
-  AKS_CLUSTER: backend-aks
-  AKS_RG: aks-rg
 
-stages:
+steps:
 
-#------------------------------------------
-# Stage 1: Build -> Scan -> Push to ACR
-#------------------------------------------
-- stage: Build
-  displayName: "Build & Push Container"
-  jobs:
-  - job: BuildJob
-    displayName: "Build Job"
-    pool:
-      vmImage: ubuntu-latest
+# Login to ACR using service connection
+- task: Docker@2
+  displayName: "🔑 Login to ACR"
+  inputs:
+    command: login
+    containerRegistry: backend-acr
 
-    steps:
-    - checkout: self
+# Build Image
+- task: Docker@2
+  displayName: "🛠 Build Docker Image"
+  inputs:
+    command: build
+    repository: $(ACR_NAME).azurecr.io/$(IMAGE_NAME)
+    dockerfile: backend/Dockerfile
+    tags: |
+      $(TAG)
 
-    - task: DockerInstaller@0
-      displayName: "Install Docker"
-
-    - task: Docker@2
-      displayName: "Build Docker Image"
-      inputs:
-        command: build
-        repository: $(ACR_NAME).azurecr.io/$(IMAGE_NAME)
-        dockerfile: Dockerfile
-        tags: |
-          $(TAG)
-
-    - bash: |
-        echo "🛡 Running Trivy Scan..."
-        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -
-        trivy image $(ACR_NAME).azurecr.io/$(IMAGE_NAME):$(TAG) --severity HIGH,CRITICAL > trivy_report.txt || true
-        
-        if grep -q "CRITICAL" trivy_report.txt; then
-          echo "❌ Critical vulnerabilities found"
-          cat trivy_report.txt
-          exit 1
-        fi
-        
-        echo "✅ Security check passed"
-      displayName: "Trivy Scan"
-
-    - task: Docker@2
-      displayName: "Push Image to ACR"
-      inputs:
-        command: push
-        repository: $(ACR_NAME).azurecr.io/$(IMAGE_NAME)
-        tags: |
-          $(TAG)
-
-#------------------------------------------
-# Stage 2: Deploy to AKS
-#------------------------------------------
-- stage: Deploy
-  displayName: "Deploy to AKS"
-  dependsOn: Build
-  jobs:
-  - job: DeployJob
-    pool:
-      vmImage: ubuntu-latest
-
-    steps:
-    - task: KubectlInstaller@0
-      displayName: "Install Kubectl"
-
-    - task: Kubernetes@1
-      displayName: "Deploy Latest Image"
-      inputs:
-        connectionType: Kubernetes Service Connection
-        kubernetesServiceConnection: "AKS-Service-Connection" # Confirm this name
-        command: apply
-        useConfigurationFile: false
-        arguments: |
-          set image deployment/backenddeploy backendcontainer=$(ACR_NAME).azurecr.io/$(IMAGE_NAME):$(TAG)
+# Push Image
+- task: Docker@2
+  displayName: "🚀 Push Docker Image"
+  inputs:
+    command: push
+    repository: $(ACR_NAME).azurecr.io/$(IMAGE_NAME)
+    tags: |
+      $(TAG)

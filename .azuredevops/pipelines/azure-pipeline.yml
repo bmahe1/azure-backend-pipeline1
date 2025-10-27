@@ -3,93 +3,43 @@ trigger:
     include:
       - main
 
-pool:
-  vmImage: 'ubuntu-latest'
-
 variables:
-  ACR_NAME: 'backendazure'
-  IMAGE_NAME: 'backend'
-  TAG: '$(Build.BuildId)'
-  RESOURCE_GROUP: 'aks-rg'
-  AKS_NAME: 'Backend-cluster'
+  tag: '$(Build.BuildId)'
+  acrName: 'backendazure'
+  imageName: 'knowledgecity-backend'
+  image: '$(acrName).azurecr.io/$(imageName):$(tag)'
+
+pool:
+  vmImage: ubuntu-latest
 
 steps:
-
-# Login to Azure
-- task: AzureCLI@2
-  displayName: Login to Azure
+- task: Docker@2
+  displayName: 🛠 Build Docker Image
   inputs:
-    azureSubscription: 'docker-connection1'
+    containerRegistry: 'repo'   # ✅ FIX: Use correct service connection
+    repository: $(imageName)                  # ✅ FIX: repo only, not full URL
+    command: build
+    Dockerfile: '**/Dockerfile'
+    tags: |
+      $(tag)
+
+- task: Docker@2
+  displayName: 🚀 Push Docker Image
+  inputs:
+    containerRegistry: 'repo'   # ✅ FIX: Same service connection
+    repository: $(imageName)
+    command: push
+    tags: |
+      $(tag)
+
+- task: AzureCLI@2
+  displayName: ⚙️ Deploy to AKS
+  inputs:
+    azureSubscription: 'docker-connection1'   # ✅ Same connection to AKS
     scriptType: bash
     scriptLocation: inlineScript
     inlineScript: |
-      echo "✅ Logged into Azure"
-      az account show
-
-# Login to ACR using Service Connection
-- task: Docker@2
-  displayName: Login to ACR
-  inputs:
-    command: login
-    containerRegistry: 'repo'
-
-# Build Docker Image
-- task: Bash@3
-  displayName: Build Docker Image
-  inputs:
-    targetType: 'inline'
-    script: |
-      echo "🐳 Building Docker image..."
-      docker build -f backend/Dockerfile \
-        -t $(ACR_NAME).azurecr.io/$(IMAGE_NAME):$(TAG) backend/
-
-# Push Docker Image to ACR
-- task: Docker@2
-  displayName: Push Docker Image
-  inputs:
-    command: push
-    containerRegistry: 'repo'
-    repository: $(ACR_NAME).azurecr.io/$(IMAGE_NAME)
-    tags: |
-      $(TAG)
-
-# Connect to AKS
-- task: AzureCLI@2
-  displayName: Connect to AKS
-  inputs:
-    azureSubscription: 'docker-connection1'
-    scriptType: 'bash'
-    inlineScript: |
-      echo "🔑 Fetching AKS Credentials..."
-      az aks get-credentials -g $RESOURCE_GROUP -n $AKS_NAME --overwrite-existing
-
-# Deploy to AKS
-- task: Kubernetes@1
-  displayName: Deploy to AKS
-  inputs:
-    connectionType: Azure Resource Manager
-    azureSubscriptionEndpoint: 'docker-connection1'
-    azureResourceGroup: $(RESOURCE_GROUP)
-    kubernetesCluster: $(AKS_NAME)
-    command: apply
-    useConfigurationFile: true
-    configuration: |
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: backend
-      spec:
-        replicas: 1
-        selector:
-          matchLabels:
-            app: backend
-        template:
-          metadata:
-            labels:
-              app: backend
-          spec:
-            containers:
-            - name: backend
-              image: $(ACR_NAME).azurecr.io/$(IMAGE_NAME):$(TAG)
-              ports:
-              - containerPort: 80
+      az aks get-credentials -g aks-rg -n Backend-cluster --overwrite-existing
+      echo "Deploying IMAGE: $(image)"
+      chmod +x deployment/scripts/deploy.sh
+      ./deployment/scripts/deploy.sh $(image) default

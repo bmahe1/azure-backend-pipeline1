@@ -14,7 +14,7 @@ variables:
   dockerRegistryServiceConnection: 'container1'
   imageRepository: 'testfouridspoc'
   containerRegistry: 'mahesh.azurecr.io'
-  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  dockerfilePath: 'backend/Dockerfile'
   tag: '$(Build.BuildId)'
   imagePullSecret: 'testfourids-auth'
  

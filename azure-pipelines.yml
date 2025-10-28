@@ -12,11 +12,7 @@ variables:
 steps:
 
 # Login to ACR using service connection
-- task: Docker@2
-  displayName: "🔑 Login to ACR"
-  inputs:
-    command: login
-    containerRegistry: backend-acr
+
 
 # Build Image
 - task: Docker@2

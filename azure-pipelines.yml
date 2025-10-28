@@ -2,9 +2,9 @@ trigger:
 - main
 
 variables:
-  dockerRegistryServiceConnection: 'container'
+  dockerRegistryServiceConnection: 'container1'
   imageRepository: 'maheshbmahesh/azure-backend'
-  containerRegistry: 'backendazure.azurecr.io'
+  containerRegistry: 'Mahesh.azurecr.io'
   dockerfilePath: 'backend/Dockerfile'
   tag: '$(Build.BuildId)'
   imagePullSecret: 'acr-secret-cred'

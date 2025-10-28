@@ -80,21 +80,3 @@ stages:
     - upload: manifests
       artifact: manifests
  
-- stage: Deploy
-  displayName: Deploy stage
-  dependsOn: Build
- 
-  jobs:
-  - deployment: Deploy
-    displayName: Deploy
-    pool:
-      vmImage: $(vmImageName)
-    environment: 'TestFourids'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - task: DownloadPipelineArtifact@2
-            inputs:
-              artifact: manifests
-              path: $(Pipeline.Workspace)/manifests

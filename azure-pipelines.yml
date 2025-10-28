@@ -1,50 +1,42 @@
-# Build, scan and push Docker image to Azure Container Registry
-
 trigger:
-  - main
+- main
 
 resources:
-  - repo: self
+- repo: self
 
 variables:
   dockerRegistryServiceConnection: 'container1'
-  imageRepository: 'testfouridspoc'
   containerRegistry: 'mahesh.azurecr.io'
+  imageRepository: 'testfouridspoc'
   dockerfilePath: 'backend/Dockerfile'
   tag: '$(Build.BuildId)'
   vmImageName: 'ubuntu-latest'
+  imagePullSecret: 'testfourids-auth'
 
 stages:
 
-# ======== BUILD & PUSH IMAGE =========
+# ============================================================
+# ⛏️ Build + Scan + Push Stage
+# ============================================================
 - stage: Build
-  displayName: "Build, Scan & Push"
+  displayName: "Build and Push Image"
   jobs:
-  - job: Build
+  - job: BuildJob
+    displayName: "Build, Scan and Push"
     pool:
       vmImage: $(vmImageName)
-
     steps:
 
-    # Build Java Application
+    # ✅ Build JAR using Maven
     - task: Maven@4
-      displayName: "Build Maven Artifact"
+      displayName: "Build Maven Project"
       inputs:
         mavenPomFile: 'pom.xml'
         goals: 'clean install -DskipTests=true'
         publishJUnitResults: true
         testResultsFiles: '**/surefire-reports/TEST-*.xml'
-        javaHomeOption: 'JDKVersion'
-        mavenVersionOption: 'Default'
 
-    # Login to ACR
-    - task: Docker@2
-      displayName: "Login to ACR"
-      inputs:
-        command: login
-        containerRegistry: $(dockerRegistryServiceConnection)
-
-    # Build Docker image
+    # ✅ Build Docker Image with ACR repository path
     - task: Docker@2
       displayName: "Build Docker Image"
       inputs:
@@ -55,7 +47,7 @@ stages:
         tags: |
           $(tag)
 
-    # Install Trivy
+    # ✅ Install Trivy
     - task: Bash@3
       displayName: "Install Trivy"
       inputs:
@@ -63,9 +55,9 @@ stages:
         script: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
 
-    # Trivy Scan
+    # ✅ Scan local Docker Image
     - task: Bash@3
-      displayName: "Scan Image with Trivy"
+      displayName: "Trivy Scan Image"
       inputs:
         targetType: inline
         script: |
@@ -74,9 +66,9 @@ stages:
           --ignore-unfixed \
           $(containerRegistry)/$(imageRepository):$(tag)
 
-    # Push Docker image
+    # ✅ Push Image to ACR
     - task: Docker@2
-      displayName: "Push Image to ACR"
+      displayName: "Push Docker Image to ACR"
       inputs:
         command: push
         repository: $(containerRegistry)/$(imageRepository)
@@ -84,17 +76,35 @@ stages:
         tags: |
           $(tag)
 
-    # Publish deployment manifests (K8s YAML)
+    # ✅ Publish Kubernetes manifests as artifact for Deploy Stage
     - publish: manifests
       artifact: manifests
 
-# ======== DEPLOY TO AKS (placeholder for now) =========
+# ============================================================
+# 🚀 Deploy Stage (AKS Deployment)
+# ============================================================
 - stage: Deploy
   displayName: "Deploy to AKS"
   dependsOn: Build
-  condition: succeeded()
   jobs:
-    - job: Deploy
-      displayName: "Deploy to Kubernetes"
-      steps:
-      - script: echo "Deployment steps will be added soon..."
+  - deployment: DeployJob
+    displayName: "Deploy App to AKS"
+    pool:
+      vmImage: $(vmImageName)
+    environment: 'TestFourids'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: KubernetesManifest@1
+            displayName: "Deploy Manifests to AKS"
+            inputs:
+              action: deploy
+              manifests: |
+                $(Pipeline.Workspace)/manifests/*.yaml
+              containers: |
+                $(containerRegistry)/$(imageRepository):$(tag)
+              imagePullSecrets: |
+                $(imagePullSecret)
+              kubernetesServiceConnection: 'aks-service-connection'
+              namespace: 'default'

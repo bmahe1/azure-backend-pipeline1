@@ -2,7 +2,7 @@ trigger:
 - main
 
 variables:
-  dockerRegistryServiceConnection: 'backend-acr'
+  dockerRegistryServiceConnection: 'container'
   imageRepository: 'maheshbmahesh/azure-backend'
   containerRegistry: 'backendazure.azurecr.io'
   dockerfilePath: 'backend/Dockerfile'

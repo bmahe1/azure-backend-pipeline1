@@ -46,9 +46,12 @@ stages:
       displayName: Build a Docker image 
       inputs:
         command: build
-        repository: $(imageRepository)
-        dockerfile: $(dockerfilePath)
-        containerRegistry: $(dockerRegistryServiceConnection)
+        repository: mahesh.azurecr.io/testfouridspoc  ##$(imageRepository)
+        dockerfile: backend/Dockerfile ##$(dockerfilePath)
+        containerRegistry: container1 ##$(dockerRegistryServiceConnection)
+        ##repository: $(imageRepository)
+        ##dockerfile: $(dockerfilePath)
+        ##containerRegistry: $(dockerRegistryServiceConnection)
         tags: |
           $(tag)
     - task: Bash@3

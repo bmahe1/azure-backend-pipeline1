@@ -13,8 +13,10 @@ spec:
       labels:
         app: knowledgecity-backend
     spec:
+      imagePullSecrets:
+      - name: testfourids-auth
       containers:
       - name: knowledgecity-backend
-        image: backendcntainer.azurecr.io/knowledgecity-backend:latest
+        image: mahesh.azurecr.io/testfouridspoc:latest
         ports:
         - containerPort: 80

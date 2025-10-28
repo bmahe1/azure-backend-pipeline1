@@ -49,7 +49,7 @@ stages:
       displayName: "Build Docker Image"
       inputs:
         command: build
-        repository: $(imageRepository)
+        repository: $(containerRegistry)/$(imageRepository)
         dockerfile: $(dockerfilePath)
         containerRegistry: $(dockerRegistryServiceConnection)
         tags: |
@@ -79,7 +79,7 @@ stages:
       displayName: "Push Image to ACR"
       inputs:
         command: push
-        repository: $(imageRepository)
+        repository: $(containerRegistry)/$(imageRepository)
         containerRegistry: $(dockerRegistryServiceConnection)
         tags: |
           $(tag)

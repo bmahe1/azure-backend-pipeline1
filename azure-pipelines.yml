@@ -1,40 +1,26 @@
 trigger:
 - main
 
-# Container registry service connection established during pipeline creation
+variables:
   dockerRegistryServiceConnection: 'backend-acr'
-  #print
   imageRepository: 'cynnentpoc'
-  containerRegistry: 'Backend-azure'
+  containerRegistry: 'backendazure.azurecr.io'
   dockerfilePath: 'backend/Dockerfile'
   tag: '$(Build.BuildId)'
-  imagePullSecret: 'pimpoc1234e35d-auth'
-
-  # Agent VM image name
+  imagePullSecret: 'acr-secret-cred'
   vmImageName: 'ubuntu-latest'
- 
- 
+
 stages:
 - stage: Build
-  displayName: Build and push stage
+  displayName: Build and Push Docker Image
   jobs:
   - job: Build
-    displayName: Build
+    displayName: Building image and pushing to ACR
     pool:
       vmImage: $(vmImageName)
     steps:
     - task: Docker@2
-      displayName: Build a Docker image 
-      inputs:
-        command: build
-        repository: $(imageRepository)
-        dockerfile: $(dockerfilePath)
-        containerRegistry: $(dockerRegistryServiceConnection)
-        tags: |
-          $(tag)
-
-    - task: Docker@2
-      displayName: Build and push an image to container registry
+      displayName: Build and Push Image 🐳
       inputs:
         command: buildAndPush
         repository: $(imageRepository)
@@ -42,20 +28,24 @@ stages:
         containerRegistry: $(dockerRegistryServiceConnection)
         tags: |
           $(tag)
- 
+
     - upload: manifests
       artifact: manifests
- 
+
 - stage: Deploy
-  displayName: Deploy stage
+  displayName: Deploy to AKS
   dependsOn: Build
- 
+
   jobs:
   - deployment: Deploy
-    displayName: Deploy
+    displayName: Deploy to AKS Kubernetes
     pool:
       vmImage: $(vmImageName)
-    environment: 'cynnentpoc-1632.helm-deployment'
+    environment:
+      name: 'cynnentpoc-environment'
+      resourceType: Kubernetes
+      # Optional: If you already connected AKS to DevOps Environment, specify resource name:
+      # resourceName: 'your-aks-connection-name'
     strategy:
       runOnce:
         deploy:
@@ -66,16 +56,15 @@ stages:
               action: createSecret
               secretName: $(imagePullSecret)
               dockerRegistryEndpoint: $(dockerRegistryServiceConnection)
- 
+
           - task: KubernetesManifest@0
-            displayName: Deploy to Kubernetes cluster
+            displayName: Deploy Manifests 🚀
             inputs:
               action: deploy
               manifests: |
                 $(Pipeline.Workspace)/manifests/deployment.yml
                 $(Pipeline.Workspace)/manifests/service.yml
-              imagePullSecrets: |
-                $(imagePullSecret)
               containers: |
                 $(containerRegistry)/$(imageRepository):$(tag)
- 
+              imagePullSecrets: |
+                $(imagePullSecret)

@@ -68,9 +68,9 @@ stages:
       displayName: Build and push an image to container registry
       inputs:
         command: buildAndPush
-        repository: $(imageRepository)
-        dockerfile: $(dockerfilePath)
-        containerRegistry: $(dockerRegistryServiceConnection)
+        repository: mahesh.azurecr.io/testfouridspoc  ##$(imageRepository)
+        dockerfile: backend/Dockerfile ##$(dockerfilePath)
+        containerRegistry: container1 ##$(dockerRegistryServiceConnection)
         tags: |
           $(tag)
  

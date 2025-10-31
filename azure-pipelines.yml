@@ -125,8 +125,6 @@ stages:
                 $(Pipeline.Workspace)/deployment/base/configmap.yaml
                 $(Pipeline.Workspace)/deployment/base/deployment.yaml
                 $(Pipeline.Workspace)/deployment/base/service.yaml
-                $(Pipeline.Workspace)/deployment/base/namespace.yaml
-                $(Pipeline.Workspace)/deployment/base/hpa.yaml
               imagePullSecrets: |
                 $(imagePullSecret)
               containers: |

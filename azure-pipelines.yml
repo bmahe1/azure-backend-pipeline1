@@ -14,7 +14,7 @@ variables:
   dockerRegistryServiceConnection: 'cnfront1'
   imageRepository: 'backendrepo'
   containerRegistry: 'cnfront.azurecr.io'
-  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  dockerfilePath: 'backend/Dockerfile'
   tag: '$(Build.BuildId)'
   imagePullSecret: 'testfourids-auth'
  

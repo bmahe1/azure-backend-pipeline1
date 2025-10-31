@@ -17,6 +17,6 @@ spec:
       - name: testfourids-auth
       containers:
       - name: knowledgecity-backend
-        image: cnfront.azurecr.io/testfouridspoc:latest
+        image: cnfront.azurecr.io/backendrepo:latest
         ports:
         - containerPort: 80

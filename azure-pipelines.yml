@@ -74,8 +74,8 @@ stages:
         tags: |
           $(tag)
  
-    - upload: manifests
-      artifact: manifests
+    - upload: deployment/base
+      artifact: deployment/base
  
 - stage: Deploy
   displayName: Deploy stage

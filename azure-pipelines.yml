@@ -111,7 +111,7 @@ stages:
           - task: KubernetesManifest@0
             displayName: Create imagePullSecret
             inputs:
-              kubernetesServiceConnection: 'cluster1'
+              kubernetesServiceConnection: 'cluster2'
               action: createSecret
               secretName: $(imagePullSecret)
               dockerRegistryEndpoint: $(dockerRegistryServiceConnection)
@@ -119,7 +119,7 @@ stages:
           - task: KubernetesManifest@0
             displayName: Deploy to Kubernetes cluster
             inputs:
-              kubernetesServiceConnection: 'cluster1'
+              kubernetesServiceConnection: 'cluster2'
               action: deploy
               manifests: |
                 $(Pipeline.Workspace)/deployment/base/configmap.yaml

@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: knowledgecity-backend
-  namespace: knowledgecity
+  namespace: backend
 spec:
   replicas: 1
   selector:
@@ -17,6 +17,6 @@ spec:
       - name: testfourids-auth
       containers:
       - name: knowledgecity-backend
-        image: mahesh.azurecr.io/testfouridspoc:latest
+        image: cnfront.azurecr.io/testfouridspoc:latest
         ports:
         - containerPort: 80

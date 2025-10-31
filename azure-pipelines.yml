@@ -1,15 +1,14 @@
 # Deploy to Azure Kubernetes Service
 # Build and push image to Azure Container Registry; Deploy to Azure Kubernetes Service
 # https://docs.microsoft.com/azure/devops/pipelines/languages/docker
- 
+
 trigger:
 - main
- 
+
 resources:
 - repo: self
- 
+
 variables:
- 
   # Container registry service connection established during pipeline creation
   dockerRegistryServiceConnection: 'cnfront1'
   imageRepository: 'backendrepo'
@@ -17,14 +16,16 @@ variables:
   dockerfilePath: 'backend/Dockerfile'
   tag: '$(Build.BuildId)'
   imagePullSecret: 'testfourids-auth'
- 
+
   # Agent VM image name
   vmImageName: 'ubuntu-latest'
- 
- 
+
 stages:
+# ---------------------------------------------------------
+# 🧱 Build and Push Stage
+# ---------------------------------------------------------
 - stage: Build
-  displayName: Build and push stage
+  displayName: Build and Push stage
   jobs:
   - job: Build
     displayName: Build
@@ -42,6 +43,7 @@ stages:
         mavenAuthenticateFeed: false
         effectivePomSkip: false
         sonarQubeRunAnalysis: false
+
     - task: Docker@2
       displayName: Build a Docker image 
       inputs:
@@ -51,19 +53,21 @@ stages:
         containerRegistry: $(dockerRegistryServiceConnection)
         tags: |
           $(tag)
+
     - task: Bash@3
       displayName: "Install Trivy"
       inputs:
         targetType: inline
         script: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
- # Run Trivy Scan
+
     - task: Bash@3
       displayName: "Run Trivy Scan"
       inputs:
         targetType: inline
         script: |
           ./bin/trivy image --severity HIGH,CRITICAL,MEDIUM --ignore-unfixed $(containerRegistry)/$(imageRepository):$(tag)
+
     - task: Docker@2
       displayName: Build and push an image to container registry
       inputs:
@@ -73,14 +77,21 @@ stages:
         containerRegistry: $(dockerRegistryServiceConnection)
         tags: |
           $(tag)
- 
-    - upload: deployment/base
-      artifact: deployment/base
- 
+
+    # ✅ FIXED ARTIFACT NAME
+    - task: PublishPipelineArtifact@1
+      displayName: "Publish K8s Manifests"
+      inputs:
+        targetPath: '$(Build.SourcesDirectory)/deployment/base'
+        artifact: 'deployment-base'
+
+# ---------------------------------------------------------
+# 🚀 Deploy Stage
+# ---------------------------------------------------------
 - stage: Deploy
   displayName: Deploy stage
   dependsOn: Build
- 
+
   jobs:
   - deployment: Deploy
     displayName: Deploy
@@ -92,10 +103,11 @@ stages:
         deploy:
           steps:
           - task: DownloadPipelineArtifact@2
+            displayName: "Download K8s Manifests"
             inputs:
-              artifact: deployment/base
-              path: $(Pipeline.Workspace)/deployment/base
- 
+              artifact: 'deployment-base'
+              path: '$(Pipeline.Workspace)/deployment/base'
+
           - task: KubernetesManifest@0
             displayName: Create imagePullSecret
             inputs:
@@ -103,7 +115,7 @@ stages:
               action: createSecret
               secretName: $(imagePullSecret)
               dockerRegistryEndpoint: $(dockerRegistryServiceConnection)
- 
+
           - task: KubernetesManifest@0
             displayName: Deploy to Kubernetes cluster
             inputs:
@@ -111,8 +123,8 @@ stages:
               action: deploy
               manifests: |
                 $(Pipeline.Workspace)/deployment/base/configmap.yaml
-                $(Pipeline.Workspace)/deployment/base/secret.yaml
                 $(Pipeline.Workspace)/deployment/base/deployment.yaml
+                $(Pipeline.Workspace)/deployment/base/service.yaml
               imagePullSecrets: |
                 $(imagePullSecret)
               containers: |

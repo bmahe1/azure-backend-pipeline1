@@ -1,32 +1,37 @@
-# Build, scan, and push Docker image to Azure Container Registry
-
+# Deploy to Azure Kubernetes Service
+# Build and push image to Azure Container Registry; Deploy to Azure Kubernetes Service
+# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
+ 
 trigger:
-  - main
-
+- Backend007
+ 
 resources:
-  - repo: self
-
+- repo: self
+ 
 variables:
+ 
+  # Container registry service connection established during pipeline creation
   dockerRegistryServiceConnection: 'cnfront1'
-  imageRepository: 'second'
+  imageRepository: 'backendrepo'
   containerRegistry: 'cnfront.azurecr.io'
-  dockerfilePath: 'backend/Dockerfile'
+  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
   tag: '$(Build.BuildId)'
+  imagePullSecret: 'testfourids-auth'
+ 
+  # Agent VM image name
   vmImageName: 'ubuntu-latest'
-
+ 
+ 
 stages:
-# ======== BUILD & PUSH IMAGE =========
 - stage: Build
-  displayName: "Build, Scan & Push"
+  displayName: Build and push stage
   jobs:
   - job: Build
+    displayName: Build
     pool:
       vmImage: $(vmImageName)
-
     steps:
-    # Build Java Application
     - task: Maven@4
-      displayName: "Build Maven Artifact"
       inputs:
         mavenPomFile: 'pom.xml'
         goals: 'clean install -DskipTests=true'
@@ -34,46 +39,81 @@ stages:
         testResultsFiles: '**/surefire-reports/TEST-*.xml'
         javaHomeOption: 'JDKVersion'
         mavenVersionOption: 'Default'
-
-    # Login to ACR
+        mavenAuthenticateFeed: false
+        effectivePomSkip: false
+        sonarQubeRunAnalysis: false
     - task: Docker@2
-      displayName: "Login to ACR"
-      inputs:
-        command: login
-        containerRegistry: $(dockerRegistryServiceConnection)
-
-    # Build Docker image with full ACR path
-    - task: Docker@2
-      displayName: "Build Docker Image"
+      displayName: Build a Docker image 
       inputs:
         command: build
-        containerRegistry: $(dockerRegistryServiceConnection)
-        repository: $(containerRegistry)/$(imageRepository)
+        repository: $(imageRepository)
         dockerfile: $(dockerfilePath)
-        tags: |
-          $(tag)
-
-    # Push Docker image (full ACR path)
-    - task: Docker@2
-      displayName: "Push Docker Image to ACR"
-      inputs:
-        command: push
         containerRegistry: $(dockerRegistryServiceConnection)
-        repository: $(containerRegistry)/$(imageRepository)
         tags: |
           $(tag)
-
-    # Publish deployment manifests (K8s YAML)
-    - publish: manifests
+    - task: Bash@3
+      displayName: "Install Trivy"
+      inputs:
+        targetType: inline
+        script: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
+ # Run Trivy Scan
+    - task: Bash@3
+      displayName: "Run Trivy Scan"
+      inputs:
+        targetType: inline
+        script: |
+          ./bin/trivy image --severity HIGH,CRITICAL,MEDIUM --ignore-unfixed $(containerRegistry)/$(imageRepository):$(tag)
+    - task: Docker@2
+      displayName: Build and push an image to container registry
+      inputs:
+        command: buildAndPush
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+ 
+    - upload: manifests
       artifact: manifests
-
-# ======== DEPLOY TO AKS (placeholder) =========
+ 
 - stage: Deploy
-  displayName: "Deploy to AKS"
+  displayName: Deploy stage
   dependsOn: Build
-  condition: succeeded()
+ 
   jobs:
-    - job: Deploy
-      displayName: "Deploy to Kubernetes"
-      steps:
-      - script: echo "Deployment steps will be added soon..."
+  - deployment: Deploy
+    displayName: Deploy
+    pool:
+      vmImage: $(vmImageName)
+    environment: 'TestFourids'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: DownloadPipelineArtifact@2
+            inputs:
+              artifact: deployment/base
+              path: $(Pipeline.Workspace)/deployment/base
+ 
+          - task: KubernetesManifest@0
+            displayName: Create imagePullSecret
+            inputs:
+              kubernetesServiceConnection: 'cluster1'
+              action: createSecret
+              secretName: $(imagePullSecret)
+              dockerRegistryEndpoint: $(dockerRegistryServiceConnection)
+ 
+          - task: KubernetesManifest@0
+            displayName: Deploy to Kubernetes cluster
+            inputs:
+              kubernetesServiceConnection: 'cluster1'
+              action: deploy
+              manifests: |
+                $(Pipeline.Workspace)/deployment/base/configmap.yaml
+                $(Pipeline.Workspace)/deployment/base/secret.yaml
+                $(Pipeline.Workspace)/deployment/base/deployment.yaml
+              imagePullSecrets: |
+                $(imagePullSecret)
+              containers: |
+                $(containerRegistry)/$(imageRepository):$(tag)

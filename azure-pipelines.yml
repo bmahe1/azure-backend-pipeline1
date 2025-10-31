@@ -7,9 +7,9 @@ resources:
   - repo: self
 
 variables:
-  dockerRegistryServiceConnection: 'container1'
-  imageRepository: 'testfouridspoc'
-  containerRegistry: 'mahesh.azurecr.io'
+  dockerRegistryServiceConnection: 'cnfront1'
+  imageRepository: 'second'
+  containerRegistry: 'cnfront.azurecr.io'
   dockerfilePath: 'backend/Dockerfile'
   tag: '$(Build.BuildId)'
   vmImageName: 'ubuntu-latest'

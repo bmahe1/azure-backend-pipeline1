@@ -17,9 +17,6 @@ variables:
   tag: '$(Build.BuildId)'
   imagePullSecret: 'testfourids-auth'
 
-  # Agent VM image name
-  vmImageName: 'ubuntu-latest'
-
 stages:
 # ---------------------------------------------------------
 # 🧱 Build and Push Stage
@@ -29,8 +26,7 @@ stages:
   jobs:
   - job: Build
     displayName: Build
-    pool:
-      vmImage: $(vmImageName)
+    pool: 'my-agent-0vm'  # Changed to your self-hosted pool
     steps:
     - task: Maven@4
       inputs:
@@ -78,7 +74,6 @@ stages:
         tags: |
           $(tag)
 
-    # ✅ FIXED ARTIFACT NAME
     - task: PublishPipelineArtifact@1
       displayName: "Publish K8s Manifests"
       inputs:
@@ -91,12 +86,10 @@ stages:
 - stage: Deploy
   displayName: Deploy stage
   dependsOn: Build
-
   jobs:
   - deployment: Deploy
     displayName: Deploy
-    pool:
-      vmImage: $(vmImageName)
+    pool: 'my-agent-0vm'  # Changed to your self-hosted pool
     environment: 'TestFourids'
     strategy:
       runOnce:

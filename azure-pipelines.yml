@@ -1,120 +1,126 @@
-# azure-pipelines.yml
+# Deploy to Azure Kubernetes Service
+# Build and push image to Azure Container Registry; Deploy to Azure Kubernetes Service
+# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
+
 trigger:
-  branches:
-    include:
-    - main
-    - develop
+- main
+
+resources:
+- repo: self
 
 variables:
-  # Docker configuration
-  dockerRegistryServiceConnection: 'DockerHubConnection'
-  imageRepository: 'maheshbmahesh/backendrepo'
-  dockerfilePath: 'Dockerfile'
+  # Container registry service connection established during pipeline creation
+  dockerRegistryServiceConnection: 'docker-external'
+  imageRepository: 'azure-backend'
+  containerRegistry: 'hub.docker.com/repository/docker/maheshbmahesh/azure-backend'
+  dockerfilePath: 'backend/Dockerfile'
   tag: '$(Build.BuildId)'
-  
-  # Application
-  k8sNamespace: 'default'
+  imagePullSecret: 'testfourids-auth'
 
 stages:
+# ---------------------------------------------------------
+# 🧱 Build and Push Stage
+# ---------------------------------------------------------
 - stage: Build
-  displayName: 'Build and Scan'
+  displayName: Build and Push stage
   jobs:
   - job: Build
-    displayName: 'Build Docker Image'
-    pool:
-      vmImage: 'ubuntu-latest'
-    
+    displayName: Build
+    pool: 'my-agent-0vm'  # Changed to your self-hosted pool
     steps:
-    # 1. Checkout code
-    - checkout: self
-      clean: true
-    
-    # 2. Set up Java
-    - task: JavaToolInstaller@0
-      displayName: 'Install Java 11'
-      inputs:
-        versionSpec: '11'
-        jdkArchitectureOption: 'x64'
-        jdkSourceOption: 'PreInstalled'
-    
-    # 3. Build with Maven
     - task: Maven@4
-      displayName: 'Build Application'
       inputs:
         mavenPomFile: 'pom.xml'
-        goals: 'clean package'
-        options: '-DskipTests=false'
+        goals: 'clean install -DskipTests=true'
         publishJUnitResults: true
-        testResultsFiles: '**/target/surefire-reports/TEST-*.xml'
-    
-    # 4. Build Docker Image
+        testResultsFiles: '**/surefire-reports/TEST-*.xml'
+        javaHomeOption: 'JDKVersion'
+        mavenVersionOption: 'Default'
+        mavenAuthenticateFeed: false
+        effectivePomSkip: false
+        sonarQubeRunAnalysis: false
+
     - task: Docker@2
-      displayName: 'Build Docker Image'
+      displayName: Build a Docker image 
       inputs:
         command: build
-        dockerfile: '$(dockerfilePath)'
-        repository: '$(imageRepository)'
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
         tags: |
           $(tag)
-          latest
-        arguments: '--pull'
-    
-    # 5. Security Scan (using template)
-    - template: .azuredevops/pipelines/templates/security-scan.yml
-      parameters:
-        imageName: '$(imageRepository):$(tag)'
-        severityThreshold: 'HIGH,CRITICAL'
-        failOnVulnerabilities: true
-    
-    # 6. Push to Docker Hub
-    - task: Docker@2
-      displayName: 'Push Docker Image'
-      inputs:
-        command: push
-        repository: '$(imageRepository)'
-        tags: |
-          $(tag)
-          latest
-      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
-    
-    # 7. Publish Build Artifacts
-    - task: PublishPipelineArtifact@1
-      displayName: 'Publish Deployment Files'
-      inputs:
-        targetPath: '$(System.DefaultWorkingDirectory)/deployment'
-        artifact: 'k8s-manifests'
-        publishLocation: 'pipeline'
 
+    - task: Bash@3
+      displayName: "Install Trivy"
+      inputs:
+        targetType: inline
+        script: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
+
+    - task: Bash@3
+      displayName: "Run Trivy Scan"
+      inputs:
+        targetType: inline
+        script: |
+          ./bin/trivy image --severity HIGH,CRITICAL,MEDIUM --ignore-unfixed $(containerRegistry)/$(imageRepository):$(tag)
+
+    - task: Docker@2
+      displayName: Build and push an image to container registry
+      inputs:
+        command: buildAndPush
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+
+    - task: PublishPipelineArtifact@1
+      displayName: "Publish K8s Manifests"
+      inputs:
+        targetPath: '$(Build.SourcesDirectory)/deployment/base'
+        artifact: 'deployment-base'
+
+# ---------------------------------------------------------
+# 🚀 Deploy Stage
+# ---------------------------------------------------------
 - stage: Deploy
-  displayName: 'Deploy to Kubernetes'
+  displayName: Deploy stage
   dependsOn: Build
-  condition: succeeded()
   jobs:
-  - deployment: DeployK8s
-    displayName: 'Deploy to Cluster'
+  - deployment: Deploy
+    displayName: Deploy
+    pool: 'my-agent-0vm'  # Changed to your self-hosted pool
     environment: 'TestFourids'
     strategy:
       runOnce:
         deploy:
           steps:
-          # 1. Download manifests
-          - download: current
-            artifact: 'k8s-manifests'
-          
-          # 2. Create Docker secret
-          - task: Kubernetes@1
-            displayName: 'Create Docker Registry Secret'
+          - task: DownloadPipelineArtifact@2
+            displayName: "Download K8s Manifests"
             inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceEndpoint: 'cluster2'
-              command: 'create'
-              arguments: 'secret docker-registry docker-hub-secret --docker-server=https://index.docker.io/v1/ --docker-username=$(dockerUsername) --docker-password=$(dockerPassword) --docker-email=$(dockerEmail)'
-            
-          # 3. Apply Kubernetes manifests
-          - task: Kubernetes@1
-            displayName: 'Apply Kubernetes Manifests'
+              artifact: 'deployment-base'
+              path: '$(Pipeline.Workspace)/deployment/base'
+
+          - task: KubernetesManifest@0
+            displayName: Create imagePullSecret
             inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceEndpoint: 'cluster2'
-              command: 'apply'
-              arguments: '-f $(Pipeline.Workspace)/k8s-manifests/'
+              kubernetesServiceConnection: 'cluster2'
+              action: createSecret
+              secretName: $(imagePullSecret)
+              dockerRegistryEndpoint: $(dockerRegistryServiceConnection)
+
+          - task: KubernetesManifest@0
+            displayName: Deploy to Kubernetes cluster
+            inputs:
+              kubernetesServiceConnection: 'cluster2'
+              action: deploy
+              manifests: |
+                $(Pipeline.Workspace)/deployment/base/configmap.yaml
+                $(Pipeline.Workspace)/deployment/base/deployment.yaml
+                $(Pipeline.Workspace)/deployment/base/service.yaml
+              imagePullSecrets: |
+                $(imagePullSecret)
+              containers: |
+                $(containerRegistry)/$(imageRepository):$(tag)
+
+

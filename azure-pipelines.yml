@@ -10,10 +10,10 @@ resources:
 
 variables:
   # Container registry service connection established during pipeline creation
-  dockerRegistryServiceConnection: 'cnfront1'
-  imageRepository: 'backendrepo'
-  containerRegistry: 'cnfront.azurecr.io'
-  dockerfilePath: 'backend/Dockerfile'
+  dockerRegistryServiceConnection: 'docker-external'
+  imageRepository: 'maheshbmahesh/backendrepo'  # Your Docker Hub username/repo
+  containerRegistry: ''  # Empty for Docker Hub
+  dockerfilePath: 'Dockerfile'  # Adjust path if needed
   tag: '$(Build.BuildId)'
   imagePullSecret: 'testfourids-auth'
 

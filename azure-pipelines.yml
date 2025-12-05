@@ -1,185 +1,87 @@
-
-# Complete CI/CD pipeline for Spring Boot application with Docker and Kubernetes
+# azure-pipelines.yml
 trigger:
   branches:
     include:
     - main
-  paths:
-    exclude:
-    - README.md
-    - .gitignore
-
-# If using GitHub as source
-resources:
-  repositories:
-    - repository: self
-      type: git
-      ref: main
+    - develop
 
 variables:
   # Docker configuration
-  dockerRegistryServiceConnection: 'docker-external'
+  dockerRegistryServiceConnection: 'DockerHubConnection'
   imageRepository: 'maheshbmahesh/backendrepo'
+  dockerfilePath: 'Dockerfile'
   tag: '$(Build.BuildId)'
   
-  # Maven configuration
-  mavenVersion: '3.6.3'
-  javaVersion: '11'
-  
-  # Kubernetes configuration
+  # Application
   k8sNamespace: 'default'
-  environmentName: 'production'
 
 stages:
 - stage: Build
-  displayName: 'Build Stage'
+  displayName: 'Build and Scan'
   jobs:
-  - job: BuildAndTest
-    displayName: 'Build and Test'
+  - job: Build
+    displayName: 'Build Docker Image'
     pool:
-      vmImage: 'ubuntu-latest'  # Or your self-hosted agent 'my-agent-0vm'
+      vmImage: 'ubuntu-latest'
     
     steps:
     # 1. Checkout code
     - checkout: self
       clean: true
-      fetchDepth: 1
     
     # 2. Set up Java
     - task: JavaToolInstaller@0
-      displayName: 'Install Java'
+      displayName: 'Install Java 11'
       inputs:
         versionSpec: '11'
         jdkArchitectureOption: 'x64'
         jdkSourceOption: 'PreInstalled'
     
-    # 3. Cache Maven dependencies
-    - task: Cache@2
-      displayName: 'Cache Maven dependencies'
-      inputs:
-        key: 'maven | "$(Agent.OS)" | pom.xml'
-        restoreKeys: |
-          maven | "$(Agent.OS)"
-        path: $(MAVEN_CACHE_FOLDER)
-    
-    # 4. Build with Maven
+    # 3. Build with Maven
     - task: Maven@4
-      displayName: 'Maven Clean Package'
+      displayName: 'Build Application'
       inputs:
-        mavenPomFile: 'pom.xml'  # Assuming pom.xml is in root
+        mavenPomFile: 'pom.xml'
         goals: 'clean package'
         options: '-DskipTests=false'
         publishJUnitResults: true
         testResultsFiles: '**/target/surefire-reports/TEST-*.xml'
-        mavenVersionOption: 'Default'
-        sonarQubeRunAnalysis: false
     
-    # 5. Run additional tests if needed
-    - script: |
-        echo "Running integration tests..."
-        mvn verify -DskipUnitTests=true
-      displayName: 'Run Integration Tests'
-      workingDirectory: '$(System.DefaultWorkingDirectory)'
-    
-    # 6. Build Docker image
+    # 4. Build Docker Image
     - task: Docker@2
       displayName: 'Build Docker Image'
       inputs:
-        command: 'build'
-        dockerfile: 'Dockerfile'  # Root directory
+        command: build
+        dockerfile: '$(dockerfilePath)'
         repository: '$(imageRepository)'
         tags: |
           $(tag)
           latest
-          v$(Build.BuildId)
         arguments: '--pull'
     
-    # 7. Security Scan (using template from your repo)
+    # 5. Security Scan (using template)
     - template: .azuredevops/pipelines/templates/security-scan.yml
       parameters:
         imageName: '$(imageRepository):$(tag)'
         severityThreshold: 'HIGH,CRITICAL'
+        failOnVulnerabilities: true
     
-    # 8. Push Docker image
+    # 6. Push to Docker Hub
     - task: Docker@2
-      displayName: 'Push to Docker Hub'
+      displayName: 'Push Docker Image'
       inputs:
-        command: 'push'
+        command: push
         repository: '$(imageRepository)'
         tags: |
           $(tag)
           latest
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
     
-    # 9. Publish build artifacts
-    - task: PublishBuildArtifacts@1
-      displayName: 'Publish JAR Artifact'
-      inputs:
-        PathtoPublish: 'target/*.jar'
-        ArtifactName: 'application-jar'
-    
-    # 10. Generate Kubernetes manifests if not in repo
-    - script: |
-        # Generate Kubernetes manifests dynamically
-        cat > deployment.yaml << EOF
-        apiVersion: apps/v1
-        kind: Deployment
-        metadata:
-          name: backend-app
-          namespace: $(k8sNamespace)
-        spec:
-          replicas: 2
-          selector:
-            matchLabels:
-              app: backend-app
-          template:
-            metadata:
-              labels:
-                app: backend-app
-            spec:
-              containers:
-              - name: backend-app
-                image: $(imageRepository):$(tag)
-                ports:
-                - containerPort: 8080
-                envFrom:
-                - configMapRef:
-                    name: backend-config
-              imagePullSecrets:
-              - name: docker-hub-secret
-        EOF
-        
-        cat > service.yaml << EOF
-        apiVersion: v1
-        kind: Service
-        metadata:
-          name: backend-service
-          namespace: $(k8sNamespace)
-        spec:
-          selector:
-            app: backend-app
-          ports:
-          - port: 80
-            targetPort: 8080
-          type: LoadBalancer
-        EOF
-        
-        cat > configmap.yaml << EOF
-        apiVersion: v1
-        kind: ConfigMap
-        metadata:
-          name: backend-config
-          namespace: $(k8sNamespace)
-        data:
-          SPRING_PROFILES_ACTIVE: "prod"
-          DATABASE_URL: "$(databaseUrl)"
-        EOF
-      displayName: 'Generate K8s Manifests'
-    
-    # 11. Publish Kubernetes manifests
+    # 7. Publish Build Artifacts
     - task: PublishPipelineArtifact@1
-      displayName: 'Publish K8s Manifests'
+      displayName: 'Publish Deployment Files'
       inputs:
-        targetPath: '$(System.DefaultWorkingDirectory)'
+        targetPath: '$(System.DefaultWorkingDirectory)/deployment'
         artifact: 'k8s-manifests'
         publishLocation: 'pipeline'
 
@@ -188,9 +90,9 @@ stages:
   dependsOn: Build
   condition: succeeded()
   jobs:
-  - deployment: DeployToK8s
-    displayName: 'Deploy Application'
-    environment: '$(environmentName)'
+  - deployment: DeployK8s
+    displayName: 'Deploy to Cluster'
+    environment: 'TestFourids'
     strategy:
       runOnce:
         deploy:
@@ -198,90 +100,21 @@ stages:
           # 1. Download manifests
           - download: current
             artifact: 'k8s-manifests'
-            patterns: '**/*.yaml'
           
-          # 2. Set kubectl context
-          - task: Kubernetes@1
-            displayName: 'Set kubectl context'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceEndpoint: 'cluster2'
-              command: 'use'
-              arguments: '--namespace=$(k8sNamespace)'
-          
-          # 3. Create Docker Hub secret
+          # 2. Create Docker secret
           - task: Kubernetes@1
             displayName: 'Create Docker Registry Secret'
             inputs:
               connectionType: 'Kubernetes Service Connection'
               kubernetesServiceEndpoint: 'cluster2'
               command: 'create'
-              arguments: 'secret docker-registry docker-hub-secret --docker-server=https://index.docker.io/v1/ --docker-username=$(dockerUsername) --docker-password=$(dockerPassword) --docker-email=$(dockerEmail) --namespace=$(k8sNamespace)'
-          
-          # 4. Apply ConfigMap
+              arguments: 'secret docker-registry docker-hub-secret --docker-server=https://index.docker.io/v1/ --docker-username=$(dockerUsername) --docker-password=$(dockerPassword) --docker-email=$(dockerEmail)'
+            
+          # 3. Apply Kubernetes manifests
           - task: Kubernetes@1
-            displayName: 'Apply ConfigMap'
+            displayName: 'Apply Kubernetes Manifests'
             inputs:
               connectionType: 'Kubernetes Service Connection'
               kubernetesServiceEndpoint: 'cluster2'
               command: 'apply'
-              arguments: '-f $(Pipeline.Workspace)/k8s-manifests/configmap.yaml'
-          
-          # 5. Apply Deployment
-          - task: Kubernetes@1
-            displayName: 'Apply Deployment'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceEndpoint: 'cluster2'
-              command: 'apply'
-              arguments: '-f $(Pipeline.Workspace)/k8s-manifests/deployment.yaml'
-          
-          # 6. Apply Service
-          - task: Kubernetes@1
-            displayName: 'Apply Service'
-            inputs:
-              connectionType: 'Kubernetes Service Connection'
-              kubernetesServiceEndpoint: 'cluster2'
-              command: 'apply'
-              arguments: '-f $(Pipeline.Workspace)/k8s-manifests/service.yaml'
-          
-          # 7. Verify deployment
-          - script: |
-              echo "Waiting for pods to be ready..."
-              kubectl wait --for=condition=available --timeout=300s deployment/backend-app --namespace=$(k8sNamespace)
-              echo "Deployment status:"
-              kubectl get deployments --namespace=$(k8sNamespace)
-              echo "Pod status:"
-              kubectl get pods --namespace=$(k8sNamespace)
-            displayName: 'Verify Deployment'
-          
-          # 8. Smoke test
-          - script: |
-              # Get service IP/Port
-              SERVICE_IP=$(kubectl get service backend-service --namespace=$(k8sNamespace) -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-              if [ -z "$SERVICE_IP" ]; then
-                SERVICE_IP=$(kubectl get service backend-service --namespace=$(k8sNamespace) -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-              fi
-              
-              # Wait for service to be available
-              echo "Testing service at $SERVICE_IP..."
-              curl --retry 10 --retry-delay 5 --retry-all-errors http://$SERVICE_IP/health || exit 1
-            displayName: 'Smoke Test'
-            env:
-              SERVICE_IP: $(SERVICE_IP)
-
-# Optional: Approval gates for production
-# - stage: Approve
-#   displayName: 'Approval Stage'
-#   dependsOn: Deploy
-#   condition: succeeded()
-#   jobs:
-#   - job: WaitForApproval
-#     displayName: 'Wait for approval'
-#     pool: server
-#     steps:
-#     - task: ManualValidation@0
-#       timeoutInMinutes: 1440
-#       inputs:
-#         instructions: 'Please review the deployment and approve for production'
-#         onTimeout: 'reject'
+              arguments: '-f $(Pipeline.Workspace)/k8s-manifests/'

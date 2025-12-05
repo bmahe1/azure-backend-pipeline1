@@ -16,7 +16,7 @@ spec:
       imagePullSecrets:
       - name: testfourids-auth
       containers:
-      - name: knowledgecity-backend
-        image: cnfront.azurecr.io/backendrepo:latest
+      - name: azure-backend
+        image: maheshbmahesh/azure-backend:latest     
         ports:
         - containerPort: 80

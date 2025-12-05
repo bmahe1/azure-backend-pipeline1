@@ -1,5 +1,5 @@
 # Deploy to Azure Kubernetes Service
-# Build and push image to Azure Container Registry; Deploy to Azure Kubernetes Service
+# Build and push image to Docker Hub; Deploy to Azure Kubernetes Service
 # https://docs.microsoft.com/azure/devops/pipelines/languages/docker
 
 trigger:
@@ -9,25 +9,29 @@ resources:
 - repo: self
 
 variables:
-  # Container registry service connection established during pipeline creation
+  # Docker Hub service connection
   dockerRegistryServiceConnection: 'docker-external'
-  imageRepository: 'azure-backend'
-  containerRegistry: 'hub.docker.com/repository/docker/maheshbmahesh/azure-backend'
+  # Docker Hub repository name (your namespace/repo)
+  dockerHubRepository: 'maheshbmahesh/azure-backend'
+  # Dockerfile path
   dockerfilePath: 'backend/Dockerfile'
+  # Tag for the image
   tag: '$(Build.BuildId)'
+  # K8s image pull secret name
   imagePullSecret: 'testfourids-auth'
 
 stages:
 # ---------------------------------------------------------
-# 🧱 Build and Push Stage
+# 🧱 Build, Scan and Push Stage
 # ---------------------------------------------------------
 - stage: Build
-  displayName: Build and Push stage
+  displayName: Build, Scan and Push stage
   jobs:
   - job: Build
     displayName: Build
-    pool: 'my-agent-0vm'  # Changed to your self-hosted pool
+    pool: 'my-agent-0vm'  # Your self-hosted pool
     steps:
+    # 1. Maven Build
     - task: Maven@4
       inputs:
         mavenPomFile: 'pom.xml'
@@ -40,42 +44,58 @@ stages:
         effectivePomSkip: false
         sonarQubeRunAnalysis: false
 
+    # 2. Build Docker image locally
     - task: Docker@2
-      displayName: Build a Docker image 
+      displayName: 'Build Docker image locally'
       inputs:
         command: build
-        repository: $(imageRepository)
+        repository: 'azure-backend-local'  # Local name for scanning
         dockerfile: $(dockerfilePath)
-        containerRegistry: $(dockerRegistryServiceConnection)
         tags: |
           $(tag)
+        buildContext: 'backend'  # Adjust if needed
 
+    # 3. Install Trivy
     - task: Bash@3
-      displayName: "Install Trivy"
+      displayName: 'Install Trivy'
       inputs:
         targetType: inline
         script: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh
 
+    # 4. Scan LOCAL image (not from Docker Hub yet)
     - task: Bash@3
-      displayName: "Run Trivy Scan"
+      displayName: 'Run Trivy Scan on Local Image'
       inputs:
         targetType: inline
         script: |
-          ./bin/trivy image --severity HIGH,CRITICAL,MEDIUM --ignore-unfixed $(containerRegistry)/$(imageRepository):$(tag)
+          ./bin/trivy image --severity HIGH,CRITICAL,MEDIUM --ignore-unfixed azure-backend-local:$(tag)
+          echo "Trivy scan completed successfully"
 
+    # 5. Tag for Docker Hub and Push
     - task: Docker@2
-      displayName: Build and push an image to container registry
+      displayName: 'Tag and Push to Docker Hub'
       inputs:
         command: buildAndPush
-        repository: $(imageRepository)
+        repository: $(dockerHubRepository)  # maheshbmahesh/azure-backend
         dockerfile: $(dockerfilePath)
         containerRegistry: $(dockerRegistryServiceConnection)
         tags: |
           $(tag)
+        buildContext: 'backend'  # Adjust if needed
 
+    # 6. Optional: Verify push was successful
+    - task: Bash@3
+      displayName: 'Verify Docker Hub Push'
+      inputs:
+        targetType: inline
+        script: |
+          echo "Image pushed to Docker Hub: $(dockerHubRepository):$(tag)"
+          echo "You can view it at: https://hub.docker.com/r/$(dockerHubRepository)/tags"
+
+    # 7. Publish K8s manifests
     - task: PublishPipelineArtifact@1
-      displayName: "Publish K8s Manifests"
+      displayName: 'Publish K8s Manifests'
       inputs:
         targetPath: '$(Build.SourcesDirectory)/deployment/base'
         artifact: 'deployment-base'
@@ -89,28 +109,31 @@ stages:
   jobs:
   - deployment: Deploy
     displayName: Deploy
-    pool: 'my-agent-0vm'  # Changed to your self-hosted pool
+    pool: 'my-agent-0vm'  # Your self-hosted pool
     environment: 'TestFourids'
     strategy:
       runOnce:
         deploy:
           steps:
+          # 1. Download K8s manifests
           - task: DownloadPipelineArtifact@2
-            displayName: "Download K8s Manifests"
+            displayName: 'Download K8s Manifests'
             inputs:
               artifact: 'deployment-base'
               path: '$(Pipeline.Workspace)/deployment/base'
 
+          # 2. Create image pull secret for Docker Hub
           - task: KubernetesManifest@0
-            displayName: Create imagePullSecret
+            displayName: 'Create imagePullSecret for Docker Hub'
             inputs:
               kubernetesServiceConnection: 'cluster2'
               action: createSecret
               secretName: $(imagePullSecret)
               dockerRegistryEndpoint: $(dockerRegistryServiceConnection)
 
+          # 3. Deploy to Kubernetes
           - task: KubernetesManifest@0
-            displayName: Deploy to Kubernetes cluster
+            displayName: 'Deploy to Kubernetes cluster'
             inputs:
               kubernetesServiceConnection: 'cluster2'
               action: deploy
@@ -121,6 +144,4 @@ stages:
               imagePullSecrets: |
                 $(imagePullSecret)
               containers: |
-                $(containerRegistry)/$(imageRepository):$(tag)
-
-
+                $(dockerHubRepository):$(tag)
